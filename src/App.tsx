@@ -48,6 +48,7 @@ export default function App() {
     selectedNode: undefined,
   };
 
+  let searchBar: HTMLInputElement | undefined;
   let container: HTMLDivElement | undefined;
   let renderer: Sigma | undefined;
   let graph: Graph | undefined;
@@ -459,7 +460,11 @@ export default function App() {
     });
 
     renderer.on('clickStage', () => {
-      selectNode(undefined);
+      if (searchBar === document.activeElement) {
+        searchBar.blur();
+      } else {
+        selectNode(undefined);
+      }
     });
 
     renderer.on('clickNode', (e) => {
@@ -515,7 +520,9 @@ export default function App() {
             placeholder="Filter a course..."
             class="w-full bg-transparent p-4 py-3 pl-2 text-neutral-100  focus:outline-none"
             value={search()}
+            ref={searchBar}
             onInput={(e) => throttleSetSearch(e.target.value)}
+            onChange={(e) => throttleSetSearch(e.target.value)}
           />
         </div>
         <Show when={isLoading()}>
