@@ -1,0 +1,192 @@
+// import { DataSet } from 'vis-network';
+
+import { onCleanup, onMount } from 'solid-js';
+import {
+  type CosmosInputLink,
+  type CosmosInputNode,
+  Graph,
+  type GraphConfigInterface,
+} from '@cosmograph/cosmos';
+import { hsl } from 'd3-color';
+import { type ScaleOrdinal, scaleOrdinal } from 'd3-scale';
+
+import { CosmosLabels } from './util';
+
+const clampNumber = (num: number, low: number, high: number) =>
+  Math.max(Math.min(num, Math.max(low, high)), Math.min(low, high));
+
+export default function App() {
+  let container: HTMLCanvasElement | undefined;
+  let labels: HTMLDivElement | undefined;
+  let graph: Graph<CosmosInputNode, CosmosInputLink> | undefined;
+
+  onMount(async () => {
+    if (!container || !labels) return;
+
+    await createNetwork(container, labels);
+  });
+
+  async function createNetwork(
+    container: HTMLCanvasElement,
+    labels: HTMLDivElement,
+  ) {
+    console.log('fetching...');
+    const courses = (await fetch('/courses_all.json').then((res) =>
+      res.json(),
+    )) as any[]; // .splice(0, 100);
+
+    console.log('done.', courses.length);
+
+    const groupIDs: Record<string, number> = {};
+
+    type Node = {
+      id: string;
+      label: string;
+      groupID: string;
+    };
+
+    type Link = {
+      source: string;
+      target: string;
+    };
+
+    const data = {
+      nodes: courses.map((data) => {
+        const label = `${data.code} ${data.number}${data.suffix || ''}`;
+
+        groupIDs[data.code] = (groupIDs[data.code] || 0) + 1;
+
+        return {
+          id: data.id,
+          label,
+          groupID: data.code,
+        };
+      }),
+      links: (() => {
+        const links = [];
+        for (let i = 0; i < courses.length; i++) {
+          const course = courses[i];
+          // prerequisites
+          for (const prerequisite of course.prerequisites) {
+            // check if prereq is in courses
+            const index = courses.findIndex((c) => c.id === prerequisite);
+            if (index === -1) continue;
+            links.push({
+              source: course.id,
+              target: prerequisite,
+            });
+          }
+          // concurrent
+          for (const concurrent of course.concurrent) {
+            // check if concurrent is in courses
+            const index = courses.findIndex((c) => c.id === concurrent);
+            if (index === -1) continue;
+            links.push({
+              source: course.id,
+              target: concurrent,
+            });
+          }
+          // corequisites
+          for (const corequisite of course.corequisites) {
+            // check if coreq is in courses
+            const index = courses.findIndex((c) => c.id === corequisite);
+            if (index === -1) continue;
+            links.push({
+              source: course.id,
+              target: corequisite,
+            });
+          }
+          // recommendation
+          for (const recommended of course.recommended) {
+            // check if recommended is in courses
+            const index = courses.findIndex((c) => c.id === recommended);
+            if (index === -1) continue;
+            links.push({
+              source: course.id,
+              target: recommended,
+            });
+          }
+        }
+        return links;
+      })(),
+    };
+
+    const cosmosLabels = new CosmosLabels<Node, Link>(labels, data);
+
+    const colorScale = scaleOrdinal()
+      .domain(Object.keys(groupIDs))
+      .range(
+        Object.keys(groupIDs).map((id) => {
+          const saturation =
+            groupIDs[id] / Math.max(...Object.values(groupIDs)); // Adjust saturation based on item count
+          const i = Object.keys(groupIDs).indexOf(id);
+          return hsl(
+            (i / Object.keys(groupIDs).length) * 360,
+            saturation,
+            0.6,
+          ).toString(); // Use HSL color space
+        }),
+      ) as ScaleOrdinal<string, string, never>;
+
+    // eslint-disable-next-line prefer-const
+    let graph: Graph<Node, Link>;
+
+    const config: GraphConfigInterface<Node, Link> = {
+      linkWidth: 0.45,
+      simulation: {
+        repulsionTheta: 2.0,
+        linkSpring: 0.2,
+        repulsion: 0.5,
+        decay: 400,
+        gravity: 0,
+        onTick: () => graph && cosmosLabels.update(graph),
+      },
+      renderHoveredNodeRing: true,
+      nodeColor: (node: Node) => colorScale(node.groupID),
+      events: {
+        onZoom(e) {
+          if (graph) {
+            cosmosLabels.update(graph);
+            // more zoomed out smaller lines more zoomed in bigger lines proportional
+            const zoom = e.transform.k;
+            graph.setConfig({
+              renderLinks: true,
+              linkWidth: clampNumber(0.3 * zoom, 0, 2),
+              linkColor: (link) => {
+                const color = colorScale(link.source)
+                  .replace('rgb(', '')
+                  .replace(')', '');
+                return `rgba(${color}, ${clampNumber(0.8 * zoom, 0, 0.5)})`;
+              },
+            });
+          }
+        },
+      },
+    };
+
+    const trackIDS = [];
+    for (let i = 0; i <= data.nodes.length; i++) {
+      trackIDS.push(data.nodes[i].id);
+    }
+
+    graph = new Graph(container, config);
+
+    graph.setData(data.nodes, data.links);
+
+    graph.trackNodePositionsByIndices(trackIDS);
+  }
+
+  onCleanup(() => {
+    graph?.destroy();
+  });
+
+  return (
+    <main class="h-screen w-screen">
+      <div ref={labels} />
+      <canvas
+        class="flex size-full items-center justify-center"
+        ref={container}
+      />
+    </main>
+  );
+}
