@@ -197,7 +197,6 @@ export default function App() {
   }
 
   async function createNetwork(container: HTMLDivElement) {
-    console.log('fetching...');
     // const courses = (
     //   (await fetch('/courses_all.json').then((res) => res.json())) as any[]
     // ).splice(0, 2500);
@@ -413,8 +412,6 @@ export default function App() {
       },
       edgeReducer(id, data) {
         const res = { ...data };
-
-        console.log(res.type);
 
         if (
           state.selectedNode &&
